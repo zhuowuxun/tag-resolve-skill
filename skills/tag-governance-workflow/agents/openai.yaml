@@ -1,0 +1,7 @@
+interface:
+  display_name: "Tag Governance Workflow"
+  short_description: "Tag字典、校对版、official桥接治理流程"
+  default_prompt: "Use $tag-governance-workflow to handle tag dictionary governance, official mapping bridges, review-table enrichment, and classified workbook supplementation for this project."
+
+policy:
+  allow_implicit_invocation: true

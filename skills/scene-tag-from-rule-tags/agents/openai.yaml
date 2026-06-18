@@ -1,0 +1,3 @@
+display_name: 场景 Tag 生成
+short_description: 根据规则总表 tag 和场景-规则映射表生成场景 tag。
+default_prompt: 根据我提供的 seq_to_action/sequence_action Excel，使用最新总表规则 tag 给场景打 tag，并输出完整占比分析表和 80% 以上真实场景 tag 表。

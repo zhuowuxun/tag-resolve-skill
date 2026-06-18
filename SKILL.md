@@ -7,6 +7,8 @@ description: Meta workflow for tag deliverables in the tag管理系统 project. 
 
 Use this as the top-level router for tag-related work. Keep it separate from rule-name/description standardization and translation skills.
 
+Bundled child skills live under `skills/` in this package. Prefer those bundled copies first so a downloaded `tag-resolve-skill` release is self-contained. Fall back to sibling installed skills only when a bundled child skill is missing.
+
 ## Start Message
 
 When this skill runs, tell the user:
@@ -39,7 +41,13 @@ Resolve the target child skill before doing work:
 - `scene-tag-from-rule-tags`: use for scene/scenario tag generation from rule tags and sequence/action mapping workbooks.
 - `master-classified-merge`: use for tag sync / classified merge into the online master table, including new master-table versions and dictionary sync scoped to the current workbook.
 
-After choosing the child skill, read that child skill's `SKILL.md` completely from `~/.codex/skills/<child-skill>/SKILL.md` or `$CODEX_HOME/skills/<child-skill>/SKILL.md`. If it is missing, say which child skill is missing and continue only with a safe fallback.
+After choosing the child skill, resolve it in this order:
+
+1. bundled child skill: `~/.codex/skills/tag-resolve/skills/<child-skill>/SKILL.md`
+2. sibling installed skill: `~/.codex/skills/<child-skill>/SKILL.md`
+3. if neither exists, stop and report the missing child skill
+
+Read the resolved child skill's `SKILL.md` completely. When the bundled child skill contains scripts, resolve relative script paths from that bundled child skill directory, not from a sibling installed skill.
 
 ## Platform Preflight
 
