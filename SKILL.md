@@ -7,7 +7,7 @@ description: Meta workflow for tag deliverables in the tag管理系统 project. 
 
 Use this as the top-level router for tag-related work. Keep it separate from rule-name/description standardization and translation skills.
 
-Bundled child skills live under `skills/` in this package. Prefer those bundled copies first so a downloaded `tag-resolve-skill` release is self-contained. Fall back to sibling installed skills only when a bundled child skill is missing.
+Bundled child skills live under `skills/` in this package. Prefer those bundled copies first so a downloaded `tag-resolve-skill` release is self-contained. Fall back to sibling standalone skills only when a bundled child skill is missing.
 
 ## Start Message
 
@@ -44,10 +44,11 @@ Resolve the target child skill before doing work:
 After choosing the child skill, resolve it in this order:
 
 1. bundled child skill: `~/.codex/skills/tag-resolve/skills/<child-skill>/SKILL.md`
-2. sibling installed skill: `~/.codex/skills/<child-skill>/SKILL.md`
-3. if neither exists, stop and report the missing child skill
+2. sibling standalone skill: `~/.codex/skills/<child-skill>-standalone/SKILL.md`
+3. legacy sibling skill, if still present: `~/.codex/skills/<child-skill>/SKILL.md`
+4. if none exists, stop and report the missing child skill
 
-Read the resolved child skill's `SKILL.md` completely. When the bundled child skill contains scripts, resolve relative script paths from that bundled child skill directory, not from a sibling installed skill.
+Read the resolved child skill's `SKILL.md` completely. When the bundled child skill contains scripts, resolve relative script paths from that bundled child skill directory, not from a sibling standalone skill.
 
 ## Platform Preflight
 
