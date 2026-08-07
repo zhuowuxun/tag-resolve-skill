@@ -44,6 +44,11 @@ Use this skill only for the `tag管理系统` project when the user provides a d
    - `backend/scripts/backfill_detection_pending_review_tags.py`
    - `backend/scripts/apply_vendor_from_software_to_pending_rules.py --rule-set DETECTION --status PENDING --dict-version detection_base`
    - `backend/scripts/apply_official_tags_to_pending_rules.py --rule-set DETECTION --status PENDING`
+     - Official/ICS enrichment must include both direct ICS codes and the approved Enterprise IT -> ICS bridge.
+     - Direct ICS source: `T0800-T0895` -> `ics_mitre_techniques` / `official_ics_mitre_techniques`; `TA0100-TA0111` -> `ics_mitre_tactics` / `official_ics_mitre_tactics`.
+     - IT-to-ICS bridge source: `tag字典_0603_split/IT-to-ICS.xlsx`, columns `IT` and `ICS`. If a source Enterprise `mitre_techniques` value appears in `IT`, add the mapped `ICS` technique plus parent ICS tactic using official ICS metadata.
+     - Do not report "no ICS" merely because the source has no direct ICS codes; check the `IT-to-ICS` mapping first. Never infer ICS from prose.
+     - OWASP hard scope: `owasp` and `official_owasp_attacks` are allowed only for Web/application vulnerability rules (`Web应用程序漏洞`, `Web安全验证`, `应用程序漏洞`, `AI应用程序漏洞`, `Web Application Vulnerability`, `Application Vulnerability`). Other detection categories must not receive OWASP through CAPEC/CWE/text bridging.
 
 6. QA only the new batch.
    - Filter rules by `raw_json::text like '%<import_batch_id>%'`.
@@ -54,6 +59,9 @@ Use this skill only for the `tag管理系统` project when the user provides a d
      - `vendor` should be bridged from dictionary, `affected_software`, official homepages, GitHub orgs, or high-confidence vendor prefixes.
      - `other` should be zero unless a residual value is intentionally left for human review.
      - Do not treat generic values as malware/software/vendor, such as `Download`, `Malicious Link`, `web`, `http`, timestamps, versions, or vulnerability category words.
+     - Check parent bridge completeness for `attack_name` -> `attack_type`. For example, source/raw `attack_name` values `信息泄漏` / `信息泄露` must bridge to `attack_type=数据泄露 (Data Exfiltration)` when the rule does not already have a stronger/manual `attack_type`. If one rule bridges and another same-name rule does not, fix the missing parent before export.
+     - If the batch has Enterprise `mitre_techniques`, verify whether any of those codes appear in `IT-to-ICS.xlsx`; mapped codes must appear in `ics_mitre_techniques` and `official_ics_mitre_techniques`.
+     - Run OWASP scope QA: non-Web/application-vulnerability rules must have zero `owasp` and zero `official_owasp_attacks`. If not, run `python backend/scripts/cleanup_non_web_owasp_tags.py --rule-set DETECTION --pending --dry-run`, inspect examples, then execute cleanup before export.
 
 7. Batch-level manual cleanup if needed.
    - Fix overlong software values by stripping endpoint/action tails (`api`, `image_url`, `createuser`, path fragments).

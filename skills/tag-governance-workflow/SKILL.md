@@ -16,6 +16,8 @@ Use this skill only for the `tag管理系统` project.
 - When the source file already contains a direct field (`cwe_nocn`, `mitre_techniques`, `nist_control_nocn`), bridge from that field first. Do not jump straight to heuristic CAPEC/OWASP inference.
 - Yellow/orange cells mean `tag_dict_id IS NULL`. Before treating them as AI补标, run a same-lane dictionary match audit. If a value can be deterministically normalized to an existing dictionary row, link it instead of leaving it yellow.
 - Do not create or imply dictionary entries just to remove yellow. If the same-lane dictionary has no matching row, keep the value yellow and report the missing dictionary term.
+- Respect dictionary approval workflow. New dictionary values may be prepared as `PENDING` candidates or exported for review, but must not be inserted as `APPROVED` automatically. Only existing approved dictionary rows can be linked as green mapped tags without user review.
+- Validate dictionary candidates before insertion. Unknown tag types, missing English, sentence-like values, URLs, timestamps, hashes, overlong descriptions, mixed multi-values, and blocked threat-group/malware/tool confusions must be returned for human confirmation rather than inserted into the dictionary.
 
 ## Workflow
 
@@ -46,10 +48,19 @@ Use this order unless the task says otherwise:
 
 Default bridge order by family:
 - MITRE: old `mitre_*` / `ics_mitre_*` -> `official_mitre_*` / `official_ics_mitre_*`
+- IT-to-ICS: Enterprise `mitre_techniques` must be checked against the approved `tag字典_0603_split/IT-to-ICS.xlsx` bridge (`IT` -> `ICS`). Matching IT techniques should add `ics_mitre_techniques`, `official_ics_mitre_techniques`, and parent `ics_mitre_tactics` / `official_ics_mitre_tactics`. Do not conclude "no ICS" until this bridge has been checked.
+- Validation rules whose Chinese or English title is clearly `命令与控制` / `Command and Control` should also get `ics_mitre_tactics=TA0101 - 命令与控制 / TA0101 - Command and Control` from the approved `validation_base` dictionary. When auditing T20/DNS/ICS gaps, scan the full title-matching population instead of only rules found by DNS-specific heuristics.
 - CWE: `cwe_nocn` -> `official_cwe`
 - NIST: `nist_control_nocn` -> `official_nist_controls` -> `official_nist_family`
 - CAPEC: `official_cwe` primary, `official_mitre_*` secondary -> `official_capec_patterns` -> `official_capec_categories`
 - OWASP attacks: official CAPEC View 659 first; otherwise only add high-confidence bridges
+- OWASP Top 10: keep official 2021 and 2025 lists side by side. Normalize old bare labels to versioned 2021 labels, e.g. `A01 - Broken Access Control` -> `A01:2021 - Broken Access Control`; retire generic labels (`OWASP Top 10`, `OWASP A1 Injection`, `OWASP A5 Security Misconfiguration`, etc.) after semantic normalization.
+- For categories that exist in both 2021 and 2025, keep both tags when one side is present: `A01:2021` <-> `A01:2025`, `A02:2021` <-> `A04:2025`, `A03:2021` <-> `A05:2025`, `A04:2021` <-> `A06:2025`, `A05:2021` <-> `A02:2025`, `A07:2021` <-> `A07:2025`, `A08:2021` <-> `A08:2025`, `A09:2021` <-> `A09:2025`.
+- Do not infer `A03:2025 - Software Supply Chain Failures` or `A10:2025 - Mishandling of Exceptional Conditions` unless a user-provided rule-to-label correspondence table explicitly contains them. Never convert `A10:2021 - Server-Side Request Forgery (SSRF)` into `A10:2025`.
+- Raw `owasp` and `official_owasp_attacks` are only valid for Web/application vulnerability rules. Before importing, merging, AI-applying, or cloning OWASP tags, run the same rule-scope check as `is_owasp_allowed_rule_text`: allow titles like `Web应用程序漏洞`, `Web安全验证`, `应用程序漏洞`, `AI应用程序漏洞`; block prefixes such as `恶意文件传输`, `钓鱼邮件`, `主机命令行`, `受保护的沙盘`, `命令与控制`, `扫描活动`, `恶意软件`, and `勒索软件`. `远程服务漏洞` is blocked by default, but can keep OWASP when the rule text has clear Web-facing evidence such as VPN/SSL VPN/Pulse Secure/HTTP/URL path traversal/file read/auth-bypass cues. Non-Web OWASP tags must be deleted, not moved to `other`.
+- `control` recommendations must follow the approved project matrix by rule prefix/context, not loose keyword matching. Prefix priority matters: `钓鱼邮件` / `Phishing Email` maps only to `Email`, even if the title mentions `恶意附件` / `Malicious attachment`; never use the malicious-file-transfer control set for phishing rows.
+- Approved `control` matrix: Web/application vulnerability prefixes (`应用程序漏洞`, `Web安全验证`, `SQL注入`, `WAF绕过`, `Web应用程序漏洞`, `XXX攻防演练`, `Web Shell 活动`, `AI应用程序漏洞`, `远程服务漏洞`, `OWASP`) -> `WAF`, `IDS/IPS`, `NGFW`, `NTA/NDR`; `命令与控制` + DNS query -> `DNS`, `NGFW`, `Proxy`, `NTA/NDR`; `命令与控制` + C&C/通信/信标/签到/Beacon/变种 -> `IDS/IPS`, `NGFW`, `NTA/NDR`, `Proxy`; `恶意文件传输` or `美国NSA网络武器` -> `AV`, `EDR/XDR`, `IDS/IPS`, `NGFW`, `Proxy`; `钓鱼邮件` -> `Email`; `容器安全` -> `Container`; `拒绝服务` -> `IDS/IPS`, `NGFW`, `NTA/NDR`; `云验证` -> `CSPM`, `HIDS`; `数据泄漏` -> `DLP`, `IDS/IPS`, `NGFW`, `NTA/NDR`, `Proxy`; `横向移动` -> `IDS/IPS`, `NGFW`, `NTA/NDR`; `捕获的IOC`, `DNS隧道`, and `利用套件(EK)活动` -> `IDS/IPS`, `NGFW`, `NTA/NDR`, `Proxy`; `Active Directory` / `AD` pcap rules -> `IDS/IPS`, `NGFW`, `NTA/NDR`; `IOT安全` / `OT安全` malicious-file-transfer cases use the malicious-file-transfer control set and vulnerability/CVE cases use the Web/application vulnerability control set.
+- `主机命令行` and `受保护的沙盘` control recommendations must account for OS, single/double host, and dependency files. `主机命令行` Linux single-host -> `HIDS`; Linux double-host -> `HIDS`, `IDS/IPS`, `NGFW`, `NTA/NDR`; Windows/macOS single-host with dependency file -> `AV`, `EDR/XDR`; Windows/macOS single-host without dependency file -> `EDR/XDR`; Windows/macOS double-host with dependency file -> `AV`, `EDR/XDR`, `IDS/IPS`, `NGFW`, `NTA/NDR`; Windows/macOS double-host without dependency file -> `EDR/XDR`, `IDS/IPS`, `NGFW`, `NTA/NDR`. `受保护的沙盘` Windows single-host with dependency file -> `AV`, `EDR/XDR`; without dependency file -> `EDR/XDR`.
 
 ## Project Paths
 
@@ -161,6 +172,7 @@ Before handing over a review workbook:
 - Ensure no sheet has `freeze_panes` set. The review Excel should not freeze windows unless the user explicitly asks.
 - Count yellow cells by sheet and inspect samples from each sheet.
 - Do not fill a summary cell yellow when it contains both mapped and unmapped values. Excel cell fill applies to the whole cell, so mixed cells would make valid mapped values look wrong. Keep exact yellow marking in the detail sheet, and only fill a summary cell yellow when all values in that dimension cell are unmapped.
+- In review/detail sheets with separate `*_cn` and `*_en` columns, write the canonical Chinese/display value into the CN column and the canonical English value into the EN column. Do not write combined display strings like `phpMyFAQ | phpMyFAQ` into either column. If CN and EN are identical, each column should contain the single value once, not a repeated `A | A` pair.
 - Sort code-like values by normalized external ID, not by raw display text. For example, `ATT&CK:M1060` should sort as `M1060`, after `M1018/M1022/M1024/M1030`, not before them because of the `ATT&CK:` prefix.
 - Re-check high-risk sheets that are often false-yellow:
   - `mitre_techniques`

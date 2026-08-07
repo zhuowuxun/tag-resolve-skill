@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable
@@ -23,6 +24,44 @@ DEFAULT_DIMENSIONS = [
     "mitre_tactics",
     "industries",
 ]
+
+THREAT_GROUP_CANONICAL_ALIASES = {
+    "8220 Gang": ("8220", "8220"),
+    "8220 团伙": ("8220", "8220"),
+    "Water Sigbin": ("8220", "8220"),
+}
+THREAT_GROUP_EN_FIXES = {
+    "毒云藤": "PoisonVine",
+    "狼毒草": "Gelsemium",
+    "绿斑": "GreenSpot",
+    "银狐": "Silver Fox",
+}
+THREAT_GROUP_BLOCKED_VALUES = {
+    # Tool/malware/family names that must not become scene threat_group tags.
+    "Backdoor",
+    "Download",
+    "Malicious Link",
+    "Cobalt",
+    "Cobalt Strike",
+    "Cobalt Gang",
+    "Cobalt Group",
+    "Cobalt Spider",
+    "G0080",
+    "Gold Kingswood",
+    "Mule Libra",
+    "RansomHub",
+    "Scarab",
+    "Emdivi",
+    "Foudre",
+    "Tonnerre",
+    "HeartBeat",
+    "PLA Navy",
+    "WildPressure",
+    "InvisiMole",
+}
+THREAT_GROUP_SPACELESS_PATTERNS = (
+    (re.compile(r"^ATK\s+(\d+)$", re.I), "ATK{}"),
+)
 
 
 def clean(value: object) -> str:
@@ -57,6 +96,28 @@ def unique_preserving_order(values: Iterable[str]) -> list[str]:
             seen.add(value)
             result.append(value)
     return result
+
+
+def normalize_key(value: str) -> str:
+    return re.sub(r"[\s_\-]+", "", clean(value)).lower()
+
+
+def normalize_threat_group_tag(tag_cn: str, tag_en: str) -> tuple[str, str]:
+    blocked = {normalize_key(value) for value in THREAT_GROUP_BLOCKED_VALUES}
+    if normalize_key(tag_cn) in blocked or normalize_key(tag_en) in blocked:
+        return "", ""
+    alias = THREAT_GROUP_CANONICAL_ALIASES.get(tag_cn) or THREAT_GROUP_CANONICAL_ALIASES.get(tag_en)
+    if alias:
+        return alias
+    for pattern, template in THREAT_GROUP_SPACELESS_PATTERNS:
+        for value in (tag_cn, tag_en):
+            match = pattern.match(value or "")
+            if match:
+                canonical = template.format(match.group(1))
+                return canonical, canonical
+    if re.search(r"[\u4e00-\u9fff]", tag_en or ""):
+        return tag_cn, THREAT_GROUP_EN_FIXES.get(tag_cn, "")
+    return tag_cn, tag_en
 
 
 def read_scene_mapping(path: Path, scene_uuid_col: str, scene_name_col: str, rule_uuid_col: str):
@@ -102,6 +163,8 @@ def read_rule_tags(path: Path, needed_rules: set[str], dimensions: set[str]):
                 continue
             tag_cn = clean(record.get("tag_cn")) or clean(record.get("raw_value"))
             tag_en = clean(record.get("tag_en"))
+            if dimension == "threat_group":
+                tag_cn, tag_en = normalize_threat_group_tag(tag_cn, tag_en)
             if not tag_cn and not tag_en:
                 continue
             rule_names[rule_uuid] = clean(record.get("rule_name"))

@@ -27,12 +27,15 @@ Expected workbook examples:
   - `CAMP.*` -> `campaign_nocn`
   - `ATT&CK:Txxxx` -> `mitre_techniques`
   - `ATT&CK:TAxxxx` or tactic names -> `mitre_tactics`
+  - `ATT&CK:T0800-T0895` -> `ics_mitre_techniques`, not Enterprise `mitre_techniques`
+  - `ATT&CK:TA0100-TA0111` -> `ics_mitre_tactics`, not Enterprise `mitre_tactics`
   - `Control:*` -> `control`
   - `OS:*` -> `os`
   - `RunAs:*` -> `run_as`
   - `Src:*+Dst:*` -> `src_destination`
   - `NIST:*` -> `nist_control`
   - `CWE-*` -> `cwe_nocn`
+  - `CAPEC-*` -> `capec_nocn`
 
 ## Workflow
 
@@ -62,16 +65,17 @@ Expected workbook examples:
      - `user_id=<admin user id>`
    - Record `import_batch_id`, imported/skipped counts, and initial `tag_type_counts`.
 
-5. Reuse Detection master `software`/`vendor` before any weak extraction.
+5. Reuse Detection master `software`/`vendor`/`attack_name`/`attack_type` before any weak extraction. This is mandatory for every Validation tagging run.
    - For the new Validation batch, collect target UUIDs from `rules_main.raw_json.import_batch_id`.
    - Query the latest committed Detection master table (`master_table_version` newest version containing `DETECTION` entries).
-   - For UUIDs that exist in Detection master, copy only `software` and `vendor` tags from Detection master to the Validation pending rules.
-   - These copied tags are authoritative reuse, not AI recommendations:
+   - For UUIDs that exist in Detection master, copy every `software`, `vendor`, `attack_name`, and `attack_type` tag from Detection master to the Validation pending rules before any title/source extraction. Do not copy only the first value when Detection has multiple values in one dimension.
+   - These copied tags are authoritative reuse, not AI recommendations, and must happen before cleanup/enrichment scripts:
      - Preserve/reuse `tag_dict_id` when available.
      - If Detection master only has raw values, resolve them against same-lane approved `validation_base` dictionary rows by exact CN/EN/display match.
-     - Do not mark copied Detection `software`/`vendor` tags yellow when they have a dictionary match.
-   - Delete the target batch's previous `software`/`vendor` rows only for UUIDs that have Detection master replacements, then insert the Detection-derived rows.
-   - For UUIDs without a Detection master match, later title/source extraction may still propose `software`/`vendor`, but keep weak guesses unmapped/yellow unless same-lane dictionary matched.
+     - Do not mark copied Detection `software`/`vendor`/`attack_name`/`attack_type` tags yellow when they have a dictionary match.
+   - Delete the target batch's previous `software`/`vendor`/`attack_name`/`attack_type` rows only for UUIDs that have Detection master replacements for that dimension, then insert the Detection-derived rows.
+   - For UUIDs without a Detection master match, later title/source extraction may still propose these dimensions, but keep weak guesses unmapped/yellow unless same-lane dictionary matched.
+   - If this step is skipped, the run is incomplete. Stop and report why Detection master reuse could not be performed.
 
 6. Run Validation enrichment scripts in this order.
    - `python backend/scripts/backfill_validation_pending_cleanup.py`
@@ -87,8 +91,20 @@ Expected workbook examples:
    - After threat-group expansion, bridge `industries`/`industry` from the final `threat_group` tags using the approved threat-group-to-industry relationship table and same-lane `validation_base` industry dictionary. Do not stop after writing `threat_group`; if no industry sheet/tag rows are produced, explicitly report why.
    - `python backend/scripts/apply_vendor_from_software_to_pending_rules.py --rule-set VALIDATION --status PENDING --dict-version validation_base`
      - Skip UUIDs whose vendor was copied from Detection master unless the Detection master has no vendor and the software-to-vendor bridge is an exact dictionary relationship.
-   - `python backend/scripts/apply_official_tags_to_pending_rules.py --rule-set VALIDATION --status PENDING`
-   - After these scripts, run a same-lane unmapped audit. Link unmapped rows only when they deterministically match `validation_base` rows of the same `tag_type`.
+  - `python backend/scripts/apply_official_tags_to_pending_rules.py --rule-set VALIDATION --status PENDING`
+    - This official bridge must cover all deterministic official dimensions, not only Enterprise ATT&CK:
+      - `mitre_techniques` -> `official_mitre_techniques` and parent `official_mitre_tactics`.
+      - `mitre_tactics` -> `official_mitre_tactics`.
+      - `mitre_techniques` -> `ics_mitre_techniques` / `official_ics_mitre_techniques` when the IT technique appears in the approved `IT-to-ICS` bridge sheet, then add parent `ics_mitre_tactics` / `official_ics_mitre_tactics`.
+      - `ics_mitre_techniques` -> `official_ics_mitre_techniques` and parent `official_ics_mitre_tactics`.
+      - `ics_mitre_tactics` -> `official_ics_mitre_tactics`.
+      - `capec_nocn` -> `official_capec_patterns`; also add `official_capec_categories` via official CAPEC category membership.
+      - `cwe_nocn` -> `official_cwe`; when official CAPEC metadata contains `cwe_external_ids`, also bridge to related `official_capec_patterns` and their `official_capec_categories`.
+    - OWASP hard scope: only rules whose title/metadata clearly indicates Web/application vulnerability (`Web应用程序漏洞`, `Web安全验证`, `应用程序漏洞`, `AI应用程序漏洞`, `Web Application Vulnerability`, `Application Vulnerability`) may receive `owasp` or `official_owasp_attacks`. Do not bridge CAPEC/CWE/text to OWASP for malicious file transfer, phishing email, host command line, protected sandbox, command-and-control, scanning, remote-service-vulnerability, or other non-Web/application-vulnerability rules. If the rule-name prefix is non-Web, it is a hard deny even when the description mentions application vulnerabilities.
+    - The default local IT-to-ICS source is `tag字典_0603_split/IT-to-ICS.xlsx`, with `IT` and `ICS` columns. Only use complete `Txxxx` / `Txxxx.xxx` codes from that sheet; never infer ICS from prose.
+    - If an IT-to-ICS mapped ICS code only exists in `mitre_official_base` but the same `validation_base` row is rejected/inactive, keep the official ICS tag green and leave the legacy `ics_mitre_*` row unmapped/yellow instead of forcing a rejected dictionary row.
+    - If a batch has no source `CAPEC-*`, no source/direct-or-IT-mapped ICS, and no CWE-to-CAPEC relationship, report that no CAPEC/ICS values were bridgeable. Do not invent placeholder CAPEC or ICS tags.
+  - After these scripts, run a same-lane unmapped audit. Link unmapped rows only when they deterministically match `validation_base` rows of the same `tag_type`.
 
 7. QA only the new batch.
    - Filter by `rules_main.raw_json::text like '%<import_batch_id>%'`.
@@ -97,8 +113,12 @@ Expected workbook examples:
    - Confirm Web/application vulnerability rows without explicit actor context have zero `threat_group` and zero derived `industries` rows. If the count is non-zero, clean it before export.
    - Confirm same-UUID Detection master reuse:
      - report how many UUIDs matched Detection master
-     - report copied `software`/`vendor` row counts
+     - report copied `software`/`vendor`/`attack_name`/`attack_type` row counts
      - copied rows with dictionary matches should not be yellow
+     - fail the QA if Validation rows with Detection matches still use weaker title-extracted values for these four dimensions
+   - Confirm OWASP scope:
+     - `owasp` and `official_owasp_attacks` must be zero for non-Web/application-vulnerability rules.
+     - If any non-Web/application-vulnerability row still has OWASP, run `python backend/scripts/cleanup_non_web_owasp_tags.py --rule-set VALIDATION --pending --dry-run`, inspect examples, then rerun without `--dry-run` for the target batch/status before export.
    - Inspect residual `other` values.
    - Do not leave structured or clearly classifiable values in `other`.
    - Audit highlighted/yellow cells before export:
@@ -107,9 +127,24 @@ Expected workbook examples:
      - True no-dictionary values should remain yellow and be reported.
      - Common false-yellow: `mitre_mitigation` values like `ATT&CK:M1018` should match `validation_base.mitre_mitigation=M1018` after stripping `ATT&CK:`.
      - Do not force `ATT&CK:M1060` or any other value green when no same-lane dictionary row exists.
+   - Run source/language/output reconciliation before export delivery. This is mandatory, not optional:
+     - Prefer the bundled helper:
+       `python ~/.codex/skills/tag-resolve/scripts/reconcile_validation_output.py --source-tags <source_tags.xlsx> --language <language.xlsx> --output <export.xlsx> --detection-master <detection_master.xlsx> --report <reconcile_report.xlsx>`
+     - Compare output UUID set against the source tag workbook UUID set. Missing UUIDs, extra UUIDs, or UUID-only rule-name fallbacks are blocking unless explicitly accepted.
+     - Compare `rule_name`/`rule_name_en` in output against the provided language workbook for overlapping UUIDs. Language workbook values should win over raw source names; mismatches must be explained.
+     - Compare source structured values against output by UUID and dimension:
+       - `CVE-*`, `CWE-*`, `CAPEC-*`, `ATT&CK:T*`, `ATT&CK:TA*`, `ATT&CK:M*`, `NIST:*`, `Control:*`, `OS:*`, `RunAs:*`, and `Src:*+Dst:*`.
+      - Treat ICS ATT&CK codes separately: `T0800-T0895` must appear under `ics_mitre_techniques`/`official_ics_mitre_techniques`, and `TA0100-TA0111` must appear under `ics_mitre_tactics`/`official_ics_mitre_tactics`.
+      - Treat IT-to-ICS bridge output as expected enrichment, not source mismatch: if a source Enterprise `mitre_techniques` code exists in `IT-to-ICS.xlsx`, verify the mapped ICS technique and parent ICS tactic are present.
+      - When source has `CWE-*`, verify any generated CAPEC comes only from official CAPEC `cwe_external_ids` relationships; when source has `CAPEC-*`, verify `official_capec_patterns` and applicable `official_capec_categories` were generated.
+       - Code-like identifiers must remain exact normalized codes; do not allow dictionary fuzzy rewrites or cross-row leakage.
+     - Compare title/language CVE values against output `cve`. Every `CVE-YYYY-NNNN` in the final rule title should appear as the same CVE in output; unrelated CVE values are blocking.
+     - Compare Detection master same-UUID reuse for `software`, `vendor`, `attack_name`, and `attack_type`. If Detection has rows for the UUID, output must contain those values unless there is an explicit audited reason not to.
+     - The reconciliation report must list checked counts and blocking issue counts. If blocking issues are non-zero, fix and rerun before handing off the workbook.
 
 8. Handle residual `other`.
    - If an `other` value appears in the rule name as a malware/tool family, promote it to `malware` as an unmapped/orange AI tag and delete the `other` mapping.
+   - When promoting an `other` value to `malware`, also create or refresh the matching `malware_type` sheet/value if the type is known from source, title, dictionary, or the reviewed malware mapping. For webshell tools such as 中国菜刀 / CHINACHOP, 冰蝎 / BEHINDER, 哥斯拉 / GODZILLA, and 蚁剑 / ANTSWORD, use the existing dictionary spelling and `malware_type=黑客工具 / Hacking Tool` when approved.
    - Examples: `RegPhantom`, `VECT`, `Stealth Packer`, `PeerTime`.
    - Do not promote generic words such as `Download`, `Malicious Link`, `web`, `http`, timestamps, versions, or vulnerability category words.
 
@@ -131,6 +166,7 @@ Expected workbook examples:
      - when source `tag_en` is empty but the standardized language workbook has an unambiguous English product name in `rule_name_en`, use that for `software` display English. Example: `Web Application Vulnerability - Lawyer eTong, ...` can fill `软件=律师 e 通` as `Lawyer eTong`.
      - do not invent vendor English names from pinyin or guesses. Vendor `tag_en` should come from dictionary/source data or remain blank if not reliable.
      - when deduplicating `software`, never keep a generic platform tag over a more specific product/plugin tag from the same rule title. Examples: keep `WordPress Perfmatters`, `WordPress s2Member`, or `WordPress Breeze Cache`; remove the generic `WordPress` for that UUID. Prefer the most specific product name that appears in the rule title, not the shortest label.
+   - User-facing `source` columns must be readable. Do not expose internal implementation markers such as `source`, `other_to_malware_reclass_*`, `title_type_reclass_*`, or `malware_existing_inferred`; translate them to labels like `原始导入`, `从 other 重归类为 malware`, `根据规则名称补 malware_type`, `已有 malware 补充 malware_type`, or omit the column.
    - Verify the workbook after saving:
      - no frozen panes on any sheet
      - yellow count by sheet
@@ -166,7 +202,7 @@ When the user later provides a standardized language workbook such as
 
 4. Rebuild weak dimensions from language text.
    - Delete old mappings for `attack_type`, `attack_name`, and bad/unmapped `malware` only for the target batch.
-   - Do not blindly delete `software`/`vendor` copied from Detection master. Re-run the Detection master reuse step first and treat copied rows as authoritative. Only rebuild `software`/`vendor` from language text for UUIDs with no Detection master match.
+   - Do not blindly delete `software`/`vendor`/`attack_name`/`attack_type` copied from Detection master. Re-run the Detection master reuse step first and treat copied rows as authoritative. Only rebuild these dimensions from language text for UUIDs with no Detection master match.
    - Recreate `attack_type`/`attack_name` from Chinese rule titles:
      - `恶意文件传输` -> `attack_type=恶意文件下载`
      - `命令与控制` -> `attack_type=C&C回连`
@@ -174,6 +210,7 @@ When the user later provides a standardized language workbook such as
      - `主机命令行` with secret reading / theft / leakage -> `attack_type=数据泄露`; with collection/enumeration/recon -> `attack_type=信息收集`.
      - `应用程序漏洞` with privilege wording -> `attack_name=权限提升` and parent `attack_type=提权`.
    - For `software`, only use true affected application/vulnerability titles such as `应用程序漏洞 - Linux 内核...`; do not treat malware names, OS names, payload filenames, or sandbox scenario names as software.
+   - Component vulnerability aliases must bridge to the approved software dictionary when present. `Log4j`, `Log4j2`, `Apache Log4j2`, and `Log4Shell` all map to `software=Apache Log4j`; do not report this as “Log4j dictionary missing”. If a rule also has a concrete affected product such as `GoAnywhere`, `Rundeck`, `Metabase`, `MobileIron`, or `Jamf Pro`, keep that product tag and additionally add `Apache Log4j`.
    - For `vendor`, bridge only when the software dictionary/metadata gives a confident vendor; do not invent vendor for Linux Kernel.
    - When the title clearly names an affected application or product but there is no `validation_base` dictionary row, keep it as an unmapped/yellow `software` tag instead of dropping it.
    - For vendor from title, only infer obvious product-owner names with strong textual evidence. Keep them unmapped/yellow unless a same-lane vendor dictionary row exists.
@@ -192,6 +229,10 @@ When the user later provides a standardized language workbook such as
      - Keep unresolved values yellow when no same-lane row exists, for example `ATT&CK:M1060` if absent from all dictionaries.
    - Normalize old MITRE technique display values similarly:
      - `ATT&CK:T1027.008` or source text containing `T1027.008` -> dictionary row `T1027.008` when present.
+   - Structured identifier tags must match complete normalized codes only:
+     - `CVE-*` must stay as the exact extracted CVE and must not be rewritten through fuzzy dictionary fragments.
+     - `CWE-*`, `CAPEC-*`, MITRE, ICS MITRE, NIST, and official-code dimensions must not use broad short-code keys such as `[A-Z]{2}-\d{2}` outside the dimension they belong to.
+     - Specifically guard against corruptions such as `CVE-2026-23482` matching `VE-20` and becoming an unrelated row like `CVE-2002-1123`.
    - Never use Detection dictionary rows to green a Validation tag. Cross-rule-set historical Detection rows may be copied only as raw suggestions unless there is a Validation dictionary match.
 
 ## Reporting

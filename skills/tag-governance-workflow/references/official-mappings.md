@@ -15,6 +15,7 @@
 - `nist_control_nocn` -> `official_nist_controls`
 - `mitre_techniques` -> `official_mitre_techniques`
 - `mitre_tactics` -> `official_mitre_tactics`
+- `mitre_techniques` -> `ics_mitre_techniques` / `official_ics_mitre_techniques` through approved `IT-to-ICS` mapping (`tag字典_0603_split/IT-to-ICS.xlsx`, columns `IT` and `ICS`)
 - `ics_mitre_techniques` -> `official_ics_mitre_techniques`
 - `ics_mitre_tactics` -> `official_ics_mitre_tactics`
 
@@ -22,6 +23,7 @@
 - `official_nist_controls` -> `official_nist_family`
 - `official_mitre_techniques` -> `official_mitre_tactics`
 - `official_ics_mitre_techniques` -> `official_ics_mitre_tactics`
+- IT-to-ICS mapped `official_ics_mitre_techniques` -> `official_ics_mitre_tactics`
 - `official_capec_patterns` -> `official_capec_categories`
 
 ### CAPEC supplementation

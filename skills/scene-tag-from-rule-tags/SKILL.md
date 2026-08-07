@@ -108,5 +108,9 @@ The script writes:
 - Do not use pending review rows unless the user explicitly asks; default to master-table tags.
 - De-duplicate scene-rule pairs before counting total rules.
 - De-duplicate repeated same tag on the same rule before counting support.
+- For `threat_group`, collapse known display aliases to the chosen canonical label before writing scene tags. Current required collapse: `8220 Gang`, `8220 团伙`, and `Water Sigbin` must output as `8220`.
+- For `threat_group`, normalize actor code spacing before aggregation. `ATK 4`, `ATK 40`, `ATK 120`, etc. must output as `ATK4`, `ATK40`, `ATK120`.
+- For `threat_group`, never write Chinese text into the English tag column. If a known Chinese alias has an English name, fill it (`毒云藤 -> PoisonVine`, `狼毒草 -> Gelsemium`, `绿斑 -> GreenSpot`, `银狐 -> Silver Fox`); otherwise leave `entag`/`tag_en` empty.
+- For `threat_group`, drop known tool/malware/false-positive labels during scene aggregation. Current blocked values include `Cobalt`, `Cobalt Strike`, `Cobalt Gang`, `Cobalt Group`, `Cobalt Spider`, `G0080`, `Gold Kingswood`, `Mule Libra`, `RansomHub`, `Scarab`, `Emdivi`, `Foudre`, `Tonnerre`, `HeartBeat`, `PLA Navy`, `WildPressure`, `InvisiMole`, `Backdoor`, `Download`, and `Malicious Link`.
 - Empty final sheets are acceptable; keep the sheet with headers.
 - If the scene mapping file uses different column names, map them deliberately and state the assumption.
