@@ -234,6 +234,52 @@ When the user later provides a standardized language workbook such as
      - `CVE-*` must stay as the exact extracted CVE and must not be rewritten through fuzzy dictionary fragments.
      - `CWE-*`, `CAPEC-*`, MITRE, ICS MITRE, NIST, and official-code dimensions must not use broad short-code keys such as `[A-Z]{2}-\d{2}` outside the dimension they belong to.
      - Specifically guard against corruptions such as `CVE-2026-23482` matching `VE-20` and becoming an unrelated row like `CVE-2002-1123`.
+
+## Official Bridge Filter: Don't Require is_active=True (added 2026-09-17)
+
+The official CWE / CAPEC / NIST / ICS bridges on the platform run via
+`scripts/apply_official_tags_to_pending_rules.py` (and the related runtime
+helpers `apply_official_cwe_to_review.py`, `apply_official_nist_to_review.py`,
+`apply_capec_nocn_to_review.py`, `apply_official_owasp_attacks_from_capec_to_review.py`,
+`expand_threat_group_alias_tags.py`, `expand_validation_pending_threat_group_families.py`,
+`enrich_classified_with_official_tags.py`, `supplement_official_from_text_for_master_version.py`,
+`backfill_validation_pending_software_vendor_from_other.py`).
+
+**Filter the dictionary rows by `TagDictionary.review_status == "APPROVED"`, not by
+`is_active == True`.** The `is_active` flag is unreliable in past dictionary
+maintenance runs: rows are routinely flipped to `false` by sync/normalize scripts
+that don't re-activate them, and that silently breaks every official bridge that
+follows. The bridge only needs to know "this is an approved entry from a known
+version" — both `is_active=True` and `is_active=null` rows are safe to consume. Use
+`TagDictionary.is_active.isnot(False)` (or equivalent) so APPROVED entries are
+picked up regardless of the active flag.
+
+Dictionary-creation and dictionary-sync scripts (`create_official_*`,
+`sync_official_*`, `normalize_official_cwe_display_names.py`,
+`create_ai_recommend_attack_dictionaries.py`) legitimately want
+`is_active == True` because they're trying to maintain currently-active entries
+without clobbering deactivated ones. Leave those untouched.
+
+**Recovery procedure when official rows are silently deactivated:** on the
+platform, run
+
+```sql
+UPDATE tag_dictionary
+SET is_active = true
+WHERE tag_type IN (
+  'official_cwe', 'official_capec_patterns', 'official_capec_categories',
+  'official_ics_mitre_techniques', 'official_ics_mitre_tactics',
+  'official_nist_controls'
+)
+AND is_active = false
+AND review_status = 'APPROVED'
+AND version_id IN (
+  SELECT id FROM dictionary_version
+  WHERE version_name IN ('mitre_official_base', 'validation_base')
+);
+```
+
+then re-run `apply_official_tags_to_pending_rules.py --rule-set VALIDATION --status PENDING`.
    - Never use Detection dictionary rows to green a Validation tag. Cross-rule-set historical Detection rows may be copied only as raw suggestions unless there is a Validation dictionary match.
 
 
