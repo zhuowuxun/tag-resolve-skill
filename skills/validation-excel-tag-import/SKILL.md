@@ -224,9 +224,10 @@ When the user later provides a standardized language workbook such as
    - After rebuilding malware, list remaining unmapped malware values and confirm they are real family names from source/title. If unsure, keep out rather than polluting the malware column.
 
 6. Re-run deterministic yellow cleanup after language retag.
-   - Normalize old MITRE mitigation display values:
-     - `ATT&CK:M1018` -> dictionary `mitre_mitigation=M1018` when present in `validation_base`.
-     - Keep unresolved values yellow when no same-lane row exists, for example `ATT&CK:M1060` if absent from all dictionaries.
+  - Normalize old MITRE mitigation display values:
+    - `ATT&CK:M1018` -> dictionary `mitre_mitigation=M1018` when present in `validation_base`.
+    - Keep unresolved values yellow when no same-lane row exists, for example `ATT&CK:M1060` if absent from all dictionaries.
+    - Strip the `ATT&CK:` prefix generically before dictionary matching so that any `ATT&CK:M####` value resolves to `mitre_mitigation=M####`; same for `ATT&CK:T####` to `mitre_techniques` and `ATT&CK:TA####` to `mitre_tactics`. After normalization, unresolved values like `ATT&CK:M1060` stay yellow only when no same-lane row exists. Apply this normalization in the cleanup pass and/or as a one-shot DB patch when the import otherwise leaves `ATT&CK:`-prefixed rows on yellow.
    - Normalize old MITRE technique display values similarly:
      - `ATT&CK:T1027.008` or source text containing `T1027.008` -> dictionary row `T1027.008` when present.
    - Structured identifier tags must match complete normalized codes only:
