@@ -236,6 +236,54 @@ When the user later provides a standardized language workbook such as
      - Specifically guard against corruptions such as `CVE-2026-23482` matching `VE-20` and becoming an unrelated row like `CVE-2002-1123`.
    - Never use Detection dictionary rows to green a Validation tag. Cross-rule-set historical Detection rows may be copied only as raw suggestions unless there is a Validation dictionary match.
 
+
+## Malware Extraction Discipline (added 2026-09-17)
+
+When extracting malware names from rule titles during the validation tag import, the
+platform scripts (`backfill_validation_pending_malware_from_title.py` and the inline
+`_extract_malware_candidate_from_rule_name` in `app/services/rule_import_v2.py`) must
+follow these rules to avoid polluting the malware dimension with action phrases and
+non-malware tokens:
+
+1. **Reject action phrases**: candidates whose first token matches an action verb
+   (execute, load, detect, call, connect, download, upload, read, write, create, delete,
+   modify, add, enumerate, extract, find, persist, establish, run, start, stop, kill,
+   obtain, collect, monitor, bypass, escalate, deploy, send, receive, steal, exfiltrate,
+   hide, perform — plus their -s/-ed/-ing variants) are techniques, not malware
+   families. Reject before dictionary matching. Implemented via `_is_action_phrase_malware`
+   helper which `_is_generic_malware_label` consults.
+
+2. **Extract leading English prefix from mixed-language segments**: a rule like
+   `恶意文件传输 - Aeternum 加载器 恶意软件，.DLL 文件，下载` should yield `Aeternum`
+   as malware. Strip common Chinese role suffixes (加载器, 释放器, 后门, 木马, 恶意软件,
+   勒索软件, 信标) and their English equivalents (beacon, loader, backdoor, trojan,
+   malware, ransomware, dropper, sample), then try the leading alphanumeric prefix
+   (>=3 chars). Without this, Chinese malware names get silently dropped.
+
+3. **Skip unmatched candidates from the database**: `backfill_validation_pending_malware_from_title.py`
+   inserts every extracted candidate regardless of dictionary match. This means
+   vendor names (OPSWAT), file extensions (LNK), and driver file names
+   (ProcessMonitorDriver.sys) end up yellow in the malware dimension. Either:
+   - Filter insertion by `if matched is not None:` before insert, OR
+   - Run a post-extraction cleanup that deletes malware tags whose
+     `tag_dict_id IS NULL` AND whose value matches known non-malware patterns
+     (vendor dictionary prefix, file extension like `.sys`/`.exe`/`.lnk`/`.dll`,
+     threat group ID pattern).
+
+4. **Dictionary hygiene**: the `validation_base.malware` dictionary should not
+   contain threat group names (e.g., KIMSUKY is currently there but Kimsuky is a
+   North Korean APT, not malware). Audit and clean during the next dictionary pass.
+
+## Threat Group Family Expansion (added 2026-09-17)
+
+`expand_validation_pending_threat_group_families.py` adds related actors via the
+`family_lookup` dictionary. Watch for over-broad alias matching: a single UNC/APT
+input can fan out to 10+ "related" actors because the family buckets key on
+overlapping aliases. Before delivery, audit:
+- For each rule with >5 threat_group tags, confirm each alias actually belongs to
+  the same threat group cluster (e.g., Bohrium=APT37 vs ENSYNCROLL's APT-U1549).
+- If a family bucket mixes unrelated groups (e.g., North Korean APT37 with Iranian
+  APT-U1549), the dictionary's metadata_info.aliases is too loose and needs pruning.
 ## Reporting
 
 Final response should include:
