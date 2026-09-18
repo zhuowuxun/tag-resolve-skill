@@ -330,6 +330,40 @@ overlapping aliases. Before delivery, audit:
   the same threat group cluster (e.g., Bohrium=APT37 vs ENSYNCROLL's APT-U1549).
 - If a family bucket mixes unrelated groups (e.g., North Korean APT37 with Iranian
   APT-U1549), the dictionary's metadata_info.aliases is too loose and needs pruning.
+
+## 和原文核对是底线（added 2026-09-18）
+
+`产品版本 4.3.35.1` 是原文，**不能改成 `产品变种 #4.3.35.1`**；`Variant-1` 是原文，**不能改成 `变种-1` 然后又改成 `变种 #1` 自己造数据**。
+
+**硬约束：任何加工前先和源 tag workbook 原文逐字段核对：**
+
+- `description` (源 col 8) → `description_cn` (输出 col 4)：逐字符核对
+- `name` (源 col 7) → `cn_name` (输出 col 2)：版本号/变种号/产品名/文件名/CVE 必须保留
+- `name` 已有值 → 不许造新值、不许重命名
+
+**禁用清单：**
+
+- 不许把 `产品版本 X.Y.Z.W` 改写成 `产品变种 #X.Y.Z.W`（混淆术语：版本 ≠ 变种）
+- 不许把 `(产品版本 4.3.35.1)` 重写成 `(产品变种 #4.3.35.1)`（加 `#`、换词）
+- 不许把 `Variant-1` 改写后丢失 `Variant` 标识
+- 不许把 `文件版本 11.11.4.0` 改写成 `文件变种 #11.11.4.0`
+- 不许给 `变种 -1` / `Variant-1` 这种源数据中无 `#` 的格式补 `#`
+
+**实施：标准化的 description 阶段必须读取源 tag workbook 的 description 原文，不要从其他行推断（推断可能导致版本号错位——比如 4.3.35.1 的描述被错误复用到 4.3.2.1 的行）。**
+
+**校验步骤（输出前必跑）：**
+
+```python
+import openpyxl
+src = openpyxl.load_workbook(SOURCE_TAG_XLSX, data_only=True)
+std = openpyxl.load_workbook(STANDARDIZED_XLSX, data_only=True)
+# 对每个 UUID：
+# 1. src description == std description_cn 逐字符一致（或仅做 SKILL.md 列出的允许替换）
+# 2. src name 里出现的所有版本号、变种号、产品名、文件版本号、cve、actor id 必须在 std cn_name + description_cn 里都出现
+# 3. 任何 std 里有但 src 里没的「term」都标黄让人审
+```
+
+不通过校验的产物不出手。
 ## Reporting
 
 Final response should include:
